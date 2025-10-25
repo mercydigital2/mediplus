@@ -26,30 +26,30 @@ jobs:
           docker tag mediplus:${{ github.run_number }} 375004071729.dkr.ecr.us-east-1.amazonaws.com/mediplus:${{ github.run_number }}
           docker push 375004071729.dkr.ecr.us-east-1.amazonaws.com/mediplus:${{ github.run_number }}
 
-  # deploy:
-  #   runs-on: ubuntu-latest
-  #   needs: build-push
-  #   steps:
-  #     - name: Decode SSH key and connect
-  #       run: |
-  #         echo "${{ secrets.SSH_KEY_BASE64 }}" | base64 --decode > key2.pem
-  #         chmod 600 key2.pem
-  #         ssh -o StrictHostKeyChecking=no -i key2.pem ${{ secrets.USERNAME }}@${{ secrets.SERVER_IP }} "echo Connected successfully!"
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build-push
+    steps:
+      - name: Decode SSH key and connect
+        run: |
+          echo "${{ secrets.SSH_KEY_BASE64 }}" | base64 --decode > key2.pem
+          chmod 600 key2.pem
+          ssh -o StrictHostKeyChecking=no -i key2.pem ${{ secrets.USERNAME }}@${{ secrets.SERVER_IP }} "echo Connected successfully!"
 
-  #         # Pull latest Docker image from ECR
-  #         # Login to ECR and pull latest Docker image
-  #         ssh -o StrictHostKeyChecking=no -i key2.pem ${{ secrets.USERNAME }}@${{ secrets.SERVER_IP }} "
-  #         aws ecr get-login-password --region us-east-1 \
-  #         | docker login --username AWS --password-stdin 375004071729.dkr.ecr.us-east-1.amazonaws.com && \
-  #         docker pull 375004071729.dkr.ecr.us-east-1.amazonaws.com/mediplus:${{ github.run_number }}"
+          # Pull latest Docker image from ECR
+          # Login to ECR and pull latest Docker image
+          ssh -o StrictHostKeyChecking=no -i key2.pem ${{ secrets.USERNAME }}@${{ secrets.SERVER_IP }} "
+          aws ecr get-login-password --region us-east-1 \
+          | docker login --username AWS --password-stdin 375004071729.dkr.ecr.us-east-1.amazonaws.com && \
+          docker pull 375004071729.dkr.ecr.us-east-1.amazonaws.com/mediplus:${{ github.run_number }}"
 
-  #         # Stop and remove old container (optional)
-  #         ssh -o StrictHostKeyChecking=no -i key2.pem ${{ secrets.USERNAME }}@${{ secrets.SERVER_IP }} \
-  #           "docker rm -f mediplus || true"
+          # Stop and remove old container (optional)
+          ssh -o StrictHostKeyChecking=no -i key2.pem ${{ secrets.USERNAME }}@${{ secrets.SERVER_IP }} \
+            "docker rm -f mediplus || true"
 
-  #         # Run new container
-  #         ssh -o StrictHostKeyChecking=no -i key2.pem ${{ secrets.USERNAME }}@${{ secrets.SERVER_IP }} \
-  #           "docker run -d --name mediplus -p 80:80 375004071729.dkr.ecr.us-east-1.amazonaws.com/mediplus:${{ github.run_number }}"
+          # Run new container
+          ssh -o StrictHostKeyChecking=no -i key2.pem ${{ secrets.USERNAME }}@${{ secrets.SERVER_IP }} \
+            "docker run -d --name mediplus -p 80:80 375004071729.dkr.ecr.us-east-1.amazonaws.com/mediplus:${{ github.run_number }}"
 
       - name: Notify Slack of successful deployment
         if: success()
