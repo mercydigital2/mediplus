@@ -1,32 +1,66 @@
-# name: Build and Push to ECR
+name: CI - Build and Push Docker Image to ECR
 
-# on:
-#   push:
-#     branches:
-#       - main
+on:
+  push:
 
-# jobs:
-#   build-push:
-#     runs-on: ubuntu-latest
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-#     steps:
-#       - name: Checkout code
-#         uses: actions/checkout@v3
+      - name: Configure AWS credentials
+        run: |
+          aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws configure set default.region ${{ secrets.AWS_REGION }}
 
-#       - name: Configure AWS credentials
-#         uses: aws-actions/configure-aws-credentials@v2
-#         with:
-#           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-#           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-#           aws-region: ${{ secrets.AWS_REGION }}
+      - name: Login to Amazon ECR
+        run: |
+          aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 375004071729.dkr.ecr.us-east-1.amazonaws.com
 
-#       - name: Login to Amazon ECR
-#         run: |
-#           aws ecr get-login-password --region eu-north-1 | docker login --username AWS --password-stdin 892004491300.dkr.ecr.eu-north-1.amazonaws.com
+      - name: Build and push Docker image to ECR
+        run: |
+          docker build -t mediplus:${{ github.run_number }} .
+          docker tag mediplus:${{ github.run_number }} 375004071729.dkr.ecr.us-east-1.amazonaws.com/mediplus:${{ github.run_number }}
+          docker push 375004071729.dkr.ecr.us-east-1.amazonaws.com/mediplus:${{ github.run_number }}
 
-#       - name: Build, tag, and push image to Amazon ECR
-#         run: |
-#           docker build -t mediplus:v1 .
-#           docker tag mediplus:v1 892004491300.dkr.ecr.eu-north-1.amazonaws.com/mediplus:v1
-#           docker push 892004491300.dkr.ecr.eu-north-1.amazonaws.com/mediplus:v1
+  # deploy:
+  #   runs-on: ubuntu-latest
+  #   needs: build-push
+  #   steps:
+  #     - name: Decode SSH key and connect
+  #       run: |
+  #         echo "${{ secrets.SSH_KEY_BASE64 }}" | base64 --decode > key2.pem
+  #         chmod 600 key2.pem
+  #         ssh -o StrictHostKeyChecking=no -i key2.pem ${{ secrets.USERNAME }}@${{ secrets.SERVER_IP }} "echo Connected successfully!"
 
+  #         # Pull latest Docker image from ECR
+  #         # Login to ECR and pull latest Docker image
+  #         ssh -o StrictHostKeyChecking=no -i key2.pem ${{ secrets.USERNAME }}@${{ secrets.SERVER_IP }} "
+  #         aws ecr get-login-password --region us-east-1 \
+  #         | docker login --username AWS --password-stdin 375004071729.dkr.ecr.us-east-1.amazonaws.com && \
+  #         docker pull 375004071729.dkr.ecr.us-east-1.amazonaws.com/mediplus:${{ github.run_number }}"
+
+  #         # Stop and remove old container (optional)
+  #         ssh -o StrictHostKeyChecking=no -i key2.pem ${{ secrets.USERNAME }}@${{ secrets.SERVER_IP }} \
+  #           "docker rm -f mediplus || true"
+
+  #         # Run new container
+  #         ssh -o StrictHostKeyChecking=no -i key2.pem ${{ secrets.USERNAME }}@${{ secrets.SERVER_IP }} \
+  #           "docker run -d --name mediplus -p 80:80 375004071729.dkr.ecr.us-east-1.amazonaws.com/mediplus:${{ github.run_number }}"
+
+      - name: Notify Slack of successful deployment
+        if: success()
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+            --data "{\"text\":\"✅ Deployment successful for mediplus (Run #${{ github.run_number }})! 🚀\"}" \
+            ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Notify Slack if deployment fails
+        if: failure()
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+            --data "{\"text\":\"❌ Deployment failed for mediplus (Run #${{ github.run_number }})! Please check logs.\"}" \
+            ${{ secrets.SLACK_WEBHOOK_URL }}

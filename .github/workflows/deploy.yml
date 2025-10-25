@@ -1,4 +1,4 @@
-name: CI/CD Pipeline - Medplus App
+name: CI/CD Pipeline - mediplus App
 
 on:
   push:
