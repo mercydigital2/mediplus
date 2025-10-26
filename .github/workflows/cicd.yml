@@ -27,34 +27,52 @@ jobs:
           docker push 375004071729.dkr.ecr.us-east-1.amazonaws.com/mediplus:${{ github.run_number }}
 
   deploy:
-  runs-on: ubuntu-latest
-  needs: build-push
-  steps:
-    - name: Write SSH key to file
-      run: |
-        echo "${{ secrets.SSH_KEY_BASE64 }}" > key2.pem
-        chmod 600 key2.pem
+    name: 🚀 Deploy to EC2
+    runs-on: ubuntu-latest
+    needs: build-push
 
-    - name: Connect and deploy
-      run: |
-        ssh -o StrictHostKeyChecking=no -i key2.pem ${{ secrets.USERNAME }}@${{ secrets.SERVER_IP }} "echo Connected successfully!"
-        ssh -o StrictHostKeyChecking=no -i key2.pem ${{ secrets.USERNAME }}@${{ secrets.SERVER_IP }} "
-          aws ecr get-login-password --region us-east-1 \
-          | docker login --username AWS --password-stdin 375004071729.dkr.ecr.us-east-1.amazonaws.com && \
-          docker pull 375004071729.dkr.ecr.us-east-1.amazonaws.com/mediplus:${{ github.run_number }} && \
-          docker rm -f mediplus || true && \
-          docker run -d --name mediplus -p 80:80 375004071729.dkr.ecr.us-east-1.amazonaws.com/mediplus:${{ github.run_number }}"
+    steps:
+      # 1️⃣ Save your private key to a file
+      - name: Configure SSH key
+        run: |
+          echo "${{ secrets.SSH_KEY_BASE64 }}" > key2.pem
+          chmod 600 key2.pem
 
-    - name: Notify Slack of successful deployment
-      if: success()
-      run: |
+      # 2️⃣ Connect to EC2 and deploy app
+      - name: Deploy Docker container to EC2
+        run: |
+          ssh -o StrictHostKeyChecking=no -i key2.pem ${{ secrets.USERNAME }}@${{ secrets.SERVER_IP }} << 'EOF'
+            echo "✅ Connected to EC2 instance successfully."
+
+            # --- AWS ECR Login ---
+            echo "🔐 Logging into Amazon ECR..."
+            aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 375004071729.dkr.ecr.us-east-1.amazonaws.com
+
+            # --- Pull latest Docker image ---
+            echo "📦 Pulling latest Docker image..."
+            docker pull 375004071729.dkr.ecr.us-east-1.amazonaws.com/mediplus:${{ github.run_number }}
+
+            # --- Stop and remove old container ---
+            echo "🧹 Removing old container (if exists)..."
+            docker rm -f mediplus || true
+
+            # --- Run new container ---
+            echo "🚀 Running new container..."
+            docker run -d --name mediplus -p 80:80 375004071729.dkr.ecr.us-east-1.amazonaws.com/mediplus:${{ github.run_number }}
+
+            echo "✅ Deployment completed successfully!"
+          EOF
+
+      - name: Notify Slack of successful deployment
+        if: success()
+        run: |
           curl -X POST -H 'Content-type: application/json' \
             --data "{\"text\":\"✅ Deployment successful for mediplus (Run #${{ github.run_number }})! 🚀\"}" \
             ${{ secrets.SLACK_WEBHOOK_URL }}
 
-    - name: Notify Slack if deployment fails
-      if: failure()
-      run: |
+      - name: Notify Slack if deployment fails
+        if: failure()
+        run: |
           curl -X POST -H 'Content-type: application/json' \
             --data "{\"text\":\"❌ Deployment failed for mediplus (Run #${{ github.run_number }})! Please check logs.\"}" \
             ${{ secrets.SLACK_WEBHOOK_URL }}
