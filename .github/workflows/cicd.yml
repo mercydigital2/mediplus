@@ -53,7 +53,7 @@ jobs:
             export AWS_SECRET_ACCESS_KEY='${{ secrets.AWS_SECRET_ACCESS_KEY }}'
             export AWS_DEFAULT_REGION='${{ secrets.AWS_REGION }}'
 
-            echo "✅ Connected to EC2 — starting deployment..."
+            echo "✅ Connected to EC2 — starting deployment...
 
             # 🐳 Login and pull latest image
             aws ecr get-login-password --region us-east-1 \
