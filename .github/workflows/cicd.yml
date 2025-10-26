@@ -1,78 +1,87 @@
-name: CI - Build and Push Docker Image to ECR
+name: CI - Build and Deploy mediplus to AWS ECR + EC2
 
 on:
   push:
+    branches:
+      - main
 
 jobs:
   build-push:
+    name: Build & Push Docker Image
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ✅ Configure AWS credentials the right way
       - name: Configure AWS credentials
-        run: |
-          aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws configure set default.region ${{ secrets.AWS_REGION }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Login to Amazon ECR
         run: |
-          aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 375004071729.dkr.ecr.us-east-1.amazonaws.com
+          aws ecr get-login-password --region ${{ secrets.AWS_REGION }} \
+          | docker login --username AWS --password-stdin 375004071729.dkr.ecr.us-east-1.amazonaws.com
 
-      - name: Build and push Docker image to ECR
+      - name: Build and Push Docker Image
         run: |
-          docker build -t mediplus:${{ github.run_number }} .
-          docker tag mediplus:${{ github.run_number }} 375004071729.dkr.ecr.us-east-1.amazonaws.com/mediplus:${{ github.run_number }}
-          docker push 375004071729.dkr.ecr.us-east-1.amazonaws.com/mediplus:${{ github.run_number }}
+          IMAGE_TAG=${{ github.run_number }}
+          docker build -t mediplus:$IMAGE_TAG .
+          docker tag mediplus:$IMAGE_TAG 375004071729.dkr.ecr.us-east-1.amazonaws.com/mediplus:$IMAGE_TAG
+          docker push 375004071729.dkr.ecr.us-east-1.amazonaws.com/mediplus:$IMAGE_TAG
 
   deploy:
-    name: 🚀 Deploy to EC2
+    name: Deploy to EC2 via SSH
     runs-on: ubuntu-latest
     needs: build-push
 
     steps:
-      # 1️⃣ Save your private key to a file
-      - name: Configure SSH key
+      - name: Decode and Prepare SSH Key
         run: |
           echo "${{ secrets.SSH_KEY_BASE64 }}" | base64 --decode > Key2.pem
           chmod 600 Key2.pem
 
-      # 2️⃣ Connect to EC2 and deploy app
-      - name: Deploy Docker container to EC2
+      - name: Deploy New Container on EC2
         run: |
           ssh -o StrictHostKeyChecking=no -i Key2.pem ${{ secrets.USERNAME }}@${{ secrets.SERVER_IP }} << 'EOF'
-            echo "✅ Connected to EC2 instance successfully."
+            # 🧠 Inject temporary AWS credentials for ECR
+            export AWS_ACCESS_KEY_ID='${{ secrets.AWS_ACCESS_KEY_ID }}'
+            export AWS_SECRET_ACCESS_KEY='${{ secrets.AWS_SECRET_ACCESS_KEY }}'
+            export AWS_DEFAULT_REGION='${{ secrets.AWS_REGION }}'
 
-            # --- AWS ECR Login ---
-            echo "🔐 Logging into Amazon ECR..."
-            aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 375004071729.dkr.ecr.us-east-1.amazonaws.com
+            echo "✅ Connected to EC2 — starting deployment..."
 
-            # --- Pull latest Docker image ---
-            echo "📦 Pulling latest Docker image..."
-            docker pull 375004071729.dkr.ecr.us-east-1.amazonaws.com/mediplus:${{ github.run_number }}
+            # 🐳 Login and pull latest image
+            aws ecr get-login-password --region us-east-1 \
+              | docker login --username AWS --password-stdin 375004071729.dkr.ecr.us-east-1.amazonaws.com
 
-            # --- Stop and remove old container ---
-            echo "🧹 Removing old container (if exists)..."
+            IMAGE_TAG=${{ github.run_number }}
+            docker pull 375004071729.dkr.ecr.us-east-1.amazonaws.com/mediplus:$IMAGE_TAG
+
+            # 🧹 Stop and remove existing container (if any)
             docker rm -f mediplus || true
 
-            # --- Run new container ---
-            echo "🚀 Running new container..."
-            docker run -d --name mediplus -p 80:80 375004071729.dkr.ecr.us-east-1.amazonaws.com/mediplus:${{ github.run_number }}
+            # 🚀 Run updated container
+            docker run -d --name mediplus -p 80:80 \
+              375004071729.dkr.ecr.us-east-1.amazonaws.com/mediplus:$IMAGE_TAG
 
             echo "✅ Deployment completed successfully!"
           EOF
 
-      - name: Notify Slack of successful deployment
+      - name: Notify Slack (Success)
         if: success()
         run: |
           curl -X POST -H 'Content-type: application/json' \
             --data "{\"text\":\"✅ Deployment successful for mediplus (Run #${{ github.run_number }})! 🚀\"}" \
             ${{ secrets.SLACK_WEBHOOK_URL }}
 
-      - name: Notify Slack if deployment fails
+      - name: Notify Slack (Failure)
         if: failure()
         run: |
           curl -X POST -H 'Content-type: application/json' \
-            --data "{\"text\":\"❌ Deployment failed for mediplus (Run #${{ github.run_number }})! Please check logs.\"}" \
+            --data "{\"text\":\"❌ Deployment failed for mediplus (Run #${{ github.run_number }})! Please check the GitHub Actions logs.\"}" \
             ${{ secrets.SLACK_WEBHOOK_URL }}
