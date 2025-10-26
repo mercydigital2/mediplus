@@ -35,13 +35,13 @@ jobs:
       # 1️⃣ Save your private key to a file
       - name: Configure SSH key
         run: |
-          echo "${{ secrets.SSH_KEY_BASE64 }}" > key2.pem
-          chmod 600 key2.pem
+          echo "${{ secrets.SSH_KEY_BASE64 }}" > Key2.pem
+          chmod 600 Key2.pem
 
       # 2️⃣ Connect to EC2 and deploy app
       - name: Deploy Docker container to EC2
         run: |
-          ssh -o StrictHostKeyChecking=no -i key2.pem ${{ secrets.USERNAME }}@${{ secrets.SERVER_IP }} << 'EOF'
+          ssh -o StrictHostKeyChecking=no -i Key2.pem ${{ secrets.USERNAME }}@${{ secrets.SERVER_IP }} << 'EOF'
             echo "✅ Connected to EC2 instance successfully."
 
             # --- AWS ECR Login ---
